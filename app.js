@@ -126,12 +126,21 @@ async function fetchOpenMeteo(lat,lon,full=true,forecast=false){
   if(!res.ok) throw new Error(`Open-Meteo request failed (${res.status}).`);
   return res.json();
 }
-async function fetchLgsaMetar(){
-  const proxy=$("metarProxyUrl").value.trim();
-  if(!proxy) throw new Error("LGSA mode requires the Cloudflare Worker proxy URL.");
-  const u=new URL(proxy);u.searchParams.set("station","LGSA");
-  const res=await fetch(u.toString());
-  if(!res.ok) throw new Error(`METAR proxy request failed (${res.status}).`);
+async function fetchLgsaMetar() {
+  const proxy =
+    "https://souda-wgbt.mkrestos.workers.dev/";
+
+  const u = new URL(proxy);
+  u.searchParams.set("station", "LGSA");
+
+  const res = await fetch(u.toString());
+
+  if (!res.ok) {
+    throw new Error(
+      `METAR proxy request failed (${res.status}).`
+    );
+  }
+
   return res.json();
 }
 async function fetchWeather(){
