@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b3a53">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="WBGT Planner">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>WBGT Planner 2.0</title>
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">Souda Bay Heat Planning</p>
+      <h1>WBGT Planner 2.0</h1>
+    </div>
+    <button id="installBtn" class="secondary hidden">Install</button>
+  </header>
+
+  <main>
+    <section class="hero-card">
+      <div>
+        <p class="label">Controlling WBGT</p>
+        <div class="hero-value"><span id="wbgtValue">--</span><span class="unit">°F</span></div>
+        <div id="flagBadge" class="flag-badge neutral">No data</div>
+      </div>
+      <div class="hero-meta">
+        <p><strong id="confidenceLabel">Estimated</strong></p>
+        <p id="updatedAt">Not updated</p>
+        <p id="sourceUsedHero">Manual inputs</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-heading">
+        <h2>Weather source</h2>
+        <button id="useLocationBtn" class="primary">Use my location</button>
+      </div>
+      <div class="grid two">
+        <label>Source
+          <select id="weatherSource">
+            <option value="local" selected>Local GPS / Open-Meteo</option>
+            <option value="lgsa">Chania Airport METAR (LGSA hybrid)</option>
+            <option value="manual">Manual inputs</option>
+          </select>
+        </label>
+        <label>Airport METAR proxy URL
+          <input id="metarProxyUrl" type="url" placeholder="Cloudflare Worker URL">
+        </label>
+        <label>Latitude<input id="latitude" type="number" step="0.000001" value="35.574"></label>
+        <label>Longitude<input id="longitude" type="number" step="0.000001" value="24.126"></label>
+      </div>
+      <div class="button-row">
+        <button id="refreshBtn" class="secondary">Refresh weather</button>
+        <button id="saveSettingsBtn" class="ghost">Save settings</button>
+      </div>
+      <p id="weatherStatus" class="status">Ready.</p>
+      <p class="fine-print">
+        LGSA hybrid uses measured airport temperature, dew point, wind, and altimeter pressure.
+        Solar irradiance still comes from Open-Meteo because METAR does not report solar radiation.
+      </p>
+    </section>
+
+    <section class="card">
+      <h2>Weather inputs</h2>
+      <div class="grid two">
+        <label>Air temperature (°F)<input id="tempF" type="number" step="0.1" value="76"></label>
+        <label>Dew point (°F)<input id="dewF" type="number" step="0.1" value="58"></label>
+        <label>Relative humidity (%)<input id="rh" type="number" step="0.1" value="55"></label>
+        <label>Surface pressure (hPa)<input id="pressureHpa" type="number" step="0.1" value="996.7"></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Exposure model</h2>
+      <div class="grid two">
+        <label>Displayed model
+          <select id="modelChoice">
+            <option value="liljegren" selected>Liljegren / OSHA</option>
+            <option value="simplified">Simplified heat balance</option>
+          </select>
+        </label>
+        <label>Exposure
+          <select id="exposure">
+            <option>Direct sun</option>
+            <option>Shade / indoors</option>
+          </select>
+        </label>
+        <label>Solar input
+          <select id="solarMode">
+            <option>Live</option>
+            <option selected>Scenario</option>
+            <option>Manual</option>
+          </select>
+        </label>
+        <label>Sky condition
+          <select id="skyScenario"></select>
+        </label>
+        <label>Surface
+          <select id="surfaceType"></select>
+        </label>
+        <label>Manual irradiance (W/m²)<input id="manualSolar" type="number" step="1" value="850"></label>
+        <label>Live irradiance (W/m²)<input id="liveSolar" type="number" step="1" value="850" readonly></label>
+        <label>Wind input
+          <select id="windMode">
+            <option selected>Live</option>
+            <option>Manual</option>
+          </select>
+        </label>
+        <label>Manual wind (mph)<input id="manualWind" type="number" step="0.1" value="3"></label>
+        <label>Live wind (mph)<input id="liveWind" type="number" step="0.1" value="3" readonly></label>
+        <label>Measured globe temp (°F, optional)<input id="measuredGlobe" type="number" step="0.1" placeholder="Optional"></label>
+        <label>Official/measured WBGT (°F, optional)<input id="officialWbgt" type="number" step="0.1" placeholder="Optional"></label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Model comparison</h2>
+      <div class="model-panel recommended">
+        <div class="model-title">
+          <strong>Liljegren / OSHA model</strong>
+          <span>Recommended weather-derived model</span>
+        </div>
+        <div class="metrics">
+          <article><span>Radiative natural wet bulb</span><strong id="lilNaturalWet">--</strong><small>°F</small></article>
+          <article><span>Liljegren globe temperature</span><strong id="lilGlobeTemp">--</strong><small>°F</small></article>
+          <article><span>Liljegren WBGT</span><strong id="lilWbgt">--</strong><small>°F</small></article>
+        </div>
+      </div>
+
+      <div class="model-panel">
+        <div class="model-title">
+          <strong>Simplified heat-balance model</strong>
+          <span>Original planning model</span>
+        </div>
+        <div class="metrics">
+          <article><span>Psychrometric wet bulb</span><strong id="naturalWet">--</strong><small>°F</small></article>
+          <article><span>Simplified globe temperature</span><strong id="globeTemp">--</strong><small>°F</small></article>
+          <article><span>Simplified WBGT</span><strong id="simplifiedWbgt">--</strong><small>°F</small></article>
+        </div>
+      </div>
+
+      <div class="metrics auxiliary">
+        <article><span>Stull wet bulb</span><strong id="stullWet">--</strong><small>°F</small></article>
+        <article><span>Model difference</span><strong id="modelDifference">--</strong><small>°F</small></article>
+        <article><span>Irradiance used</span><strong id="solarUsed">--</strong><small>W/m²</small></article>
+        <article><span>Wind used</span><strong id="windUsed">--</strong><small>mph</small></article>
+        <article><span>Weather source</span><strong id="sourceUsed">--</strong></article>
+        <article><span>METAR age</span><strong id="metarAge">--</strong><small>min</small></article>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-heading">
+        <h2>Souda Bay site estimates</h2>
+        <span class="site-note">LGSA baseline + site modifiers</span>
+      </div>
+      <div class="site-table-wrap">
+        <table class="site-table">
+          <thead>
+            <tr>
+              <th>Location</th><th>Liljegren</th><th>Simplified</th><th>Flag</th><th>Main modifier</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Flight Line</td><td id="siteFlightLil">--</td><td id="siteFlightSimple">--</td><td><span id="siteFlightFlag" class="mini-flag neutral">--</span></td><td>Concrete apron, full exposure</td></tr>
+            <tr><td>Marathi Pier</td><td id="siteMarathiLil">--</td><td id="siteMarathiSimple">--</td><td><span id="siteMarathiFlag" class="mini-flag neutral">--</span></td><td>Marine wind, concrete over water</td></tr>
+            <tr><td>Synthetic Softball Field</td><td id="siteSoftballLil">--</td><td id="siteSoftballSimple">--</td><td><span id="siteSoftballFlag" class="mini-flag neutral">--</span></td><td>Open synthetic turf, full exposure</td></tr>
+            <tr><td>Fuel Farm</td><td id="siteFuelLil">--</td><td id="siteFuelSimple">--</td><td><span id="siteFuelFlag" class="mini-flag neutral">--</span></td><td>Reduced wind, tanks/hardstand</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="fine-print">Provisional planning profiles; not measured calibration factors.</p>
+    </section>
+
+    <section class="card">
+      <div class="section-heading">
+        <h2>Hourly WBGT forecast</h2>
+        <button id="loadForecastBtn" class="secondary">Load forecast</button>
+      </div>
+      <canvas id="forecastChart" width="700" height="320" aria-label="Hourly WBGT forecast chart"></canvas>
+      <div id="forecastTableWrap" class="site-table-wrap"></div>
+    </section>
+
+    <section class="card">
+      <h2>Confidence and data quality</h2>
+      <div class="metrics">
+        <article><span>Confidence level</span><strong id="confidenceScore">--</strong></article>
+        <article><span>Data age</span><strong id="dataAge">--</strong><small>min</small></article>
+        <article><span>Model spread</span><strong id="spreadValue">--</strong><small>°F</small></article>
+        <article><span>Quality note</span><strong id="qualityNote">--</strong></article>
+      </div>
+    </section>
+
+    <section class="card">
+      <details open>
+        <summary>Engineer mode</summary>
+        <div class="details-body">
+          <div class="metrics">
+            <article><span>Actual vapor pressure</span><strong id="engVaporPressure">--</strong><small>hPa</small></article>
+            <article><span>Psychrometric coefficient</span><strong id="engPsychCoeff">--</strong></article>
+            <article><span>Solar zenith cosine</span><strong id="engCza">--</strong></article>
+            <article><span>Direct radiation fraction</span><strong id="engFdir">--</strong></article>
+            <article><span>Liljegren 2 m wind</span><strong id="engWind2m">--</strong><small>mph</small></article>
+            <article><span>Surface albedo</span><strong id="engAlbedo">--</strong></article>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <section class="card">
+      <details>
+        <summary>Validation log</summary>
+        <div class="details-body">
+          <div class="grid two">
+            <label>Location<input id="validationLocation" type="text" value="Flight Line"></label>
+            <label>Measured WBGT (°F)<input id="validationMeasured" type="number" step="0.1"></label>
+          </div>
+          <div class="button-row">
+            <button id="addValidationBtn" class="secondary">Add measurement</button>
+            <button id="exportValidationBtn" class="ghost">Export CSV</button>
+            <button id="clearValidationBtn" class="ghost">Clear log</button>
+          </div>
+          <div id="validationStats" class="status">No measurements logged.</div>
+          <div id="validationTableWrap" class="site-table-wrap"></div>
+        </div>
+      </details>
+    </section>
+
+    <section class="card warning-card">
+      <h2>Safety context</h2>
+      <p id="guidanceText">Enter or refresh data to calculate heat-stress context.</p>
+      <p class="fine-print">Planning aid only. Official command WBGT readings, local policy, medical guidance, and calibrated instruments control operational decisions.</p>
+    </section>
+
+    <section class="card">
+      <details>
+        <summary>Method and formulas</summary>
+        <div class="details-body">
+          <p><strong>Liljegren / OSHA:</strong> predicts radiative natural wet bulb and globe temperature from meteorological data, solar position, direct/diffuse radiation, humidity, pressure, and wind.</p>
+          <p><strong>Simplified heat balance:</strong> uses a psychrometric wet bulb plus a simplified black-globe energy balance with solar gain, surface albedo, longwave radiation, and convective cooling.</p>
+          <p>Direct sun: WBGT = 0.7 × natural wet bulb + 0.2 × globe temperature + 0.1 × dry bulb.</p>
+          <p>Shade/indoors: WBGT = 0.7 × natural wet bulb + 0.3 × globe temperature.</p>
+        </div>
+      </details>
+    </section>
+
+    <section class="card">
+      <details>
+        <summary>Install on iPhone</summary>
+        <div class="details-body">
+          <ol><li>Open in Safari.</li><li>Tap Share.</li><li>Select Add to Home Screen.</li><li>Launch from the icon.</li></ol>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <footer><a href="privacy.html">Privacy</a><span>•</span><span>Version 2.0</span></footer>
+
+  <script src="calculations.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
