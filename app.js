@@ -128,7 +128,7 @@ async function fetchOpenMeteo(lat,lon,full=true,forecast=false){
 }
 async function fetchLgsaMetar() {
   const proxy =
-    "https://souda-wgbt.mkrestos.workers.dev/";
+    "https://souda-bay.mkrestos.workers.dev/";
 
   const u = new URL(proxy);
   u.searchParams.set("station", "LGSA");
