@@ -209,7 +209,7 @@ function useCurrentLocation(){
     e=>$("weatherStatus").textContent=`Location unavailable: ${e.message}`,{enableHighAccuracy:true,timeout:12000,maximumAge:300000});
 }
 function saveSettings(){
-  const ids=["weatherSource","metarProxyUrl","latitude","longitude","modelChoice","exposure","solarMode","skyScenario","surfaceType","manualSolar","windMode","manualWind"];
+  const ids=["weatherSource","latitude","longitude","modelChoice","exposure","solarMode","skyScenario","surfaceType","manualSolar","windMode","manualWind"];
   const obj={};ids.forEach(id=>obj[id]=$(id).value);localStorage.setItem("wbgtSettings",JSON.stringify(obj));$("weatherStatus").textContent="Settings saved.";
 }
 function loadSettings(){
