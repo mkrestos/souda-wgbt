@@ -1,156 +1,230 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b3a53">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="WBGT Planner">
-  <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="styles.css">
-  <title>WBGT Planner</title>
-</head>
-<body>
-  <header class="app-header">
-    <div>
-      <p class="eyebrow">Souda Bay Heat Planning</p>
-      <h1>WBGT Planner</h1>
-    </div>
-    <button id="installBtn" class="secondary hidden">Install</button>
-  </header>
+let deferredPrompt = null;
+let observationDate = new Date();
+let currentSourceLabel = "Manual / local model";
+let currentMetarAge = null;
 
-  <main>
-    <section class="hero-card">
-      <div>
-        <p class="label">Controlling WBGT</p>
-        <div class="hero-value"><span id="wbgtValue">--</span><span class="unit">°F</span></div>
-        <div id="flagBadge" class="flag-badge neutral">No data</div>
-      </div>
-      <div class="hero-meta">
-        <p><strong id="confidenceLabel">Estimated</strong></p>
-        <p id="updatedAt">Not updated</p>
-      </div>
-    </section>
+const $ = id => document.getElementById(id);
+const num = id => Number($(id).value);
 
-    <section class="card">
-      <div class="section-heading">
-        <h2>Live location</h2>
-        <button id="useLocationBtn" class="primary">Use my location</button>
-      </div>
-      <div class="grid two">
-        <label>Latitude<input id="latitude" type="number" step="0.000001" value="35.574"></label>
-        <label>Longitude<input id="longitude" type="number" step="0.000001" value="24.126"></label>
-      </div>
-      <div class="button-row">
-        <button id="refreshBtn" class="secondary">Refresh weather</button>
-        <button id="manualModeBtn" class="ghost">Use manual weather</button>
-      </div>
-      <p id="weatherStatus" class="status">Ready.</p>
-    </section>
+const LGSA = {
+  station: "LGSA",
+  latitude: 35.5317,
+  longitude: 24.1497,
+  elevationFt: 490
+};
 
-    <section class="card">
-      <h2>Weather inputs</h2>
-      <div class="grid two">
-        <label>Air temperature (°F)<input id="tempF" type="number" step="0.1" value="76"></label>
-        <label>Dew point (°F)<input id="dewF" type="number" step="0.1" value="58"></label>
-        <label>Relative humidity (%)<input id="rh" type="number" step="0.1" value="55"></label>
-        <label>Surface pressure (hPa)<input id="pressureHpa" type="number" step="0.1" value="996.7"></label>
-      </div>
-    </section>
+function populateLookups() {
+  Object.keys(WBGT.scenarios).forEach(name => {
+    const o=document.createElement("option"); o.value=o.textContent=name; $("skyScenario").appendChild(o);
+  });
+  $("skyScenario").value="Clear strong sun";
+  Object.keys(WBGT.surfaces).forEach(name => {
+    const o=document.createElement("option"); o.value=o.textContent=name; $("surfaceType").appendChild(o);
+  });
+  $("surfaceType").value="Weathered concrete apron";
+}
 
-    <section class="card">
-      <h2>Exposure model</h2>
-      <div class="grid two">
-        <label>Exposure
-          <select id="exposure">
-            <option>Direct sun</option>
-            <option>Shade / indoors</option>
-          </select>
-        </label>
-        <label>Solar input
-          <select id="solarMode">
-            <option>Live</option>
-            <option selected>Scenario</option>
-            <option>Manual</option>
-          </select>
-        </label>
-        <label>Sky condition
-          <select id="skyScenario"></select>
-        </label>
-        <label>Surface
-          <select id="surfaceType"></select>
-        </label>
-        <label>Manual irradiance (W/m²)<input id="manualSolar" type="number" step="1" value="850"></label>
-        <label>Live irradiance (W/m²)<input id="liveSolar" type="number" step="1" value="850" readonly></label>
-        <label>Wind input
-          <select id="windMode">
-            <option selected>Live</option>
-            <option>Manual</option>
-          </select>
-        </label>
-        <label>Manual wind (mph)<input id="manualWind" type="number" step="0.1" value="3"></label>
-        <label>Live wind (mph)<input id="liveWind" type="number" step="0.1" value="3" readonly></label>
-        <label>Measured globe temp (°F, optional)<input id="measuredGlobe" type="number" step="0.1" placeholder="Optional"></label>
-        <label>Official/measured WBGT (°F, optional)<input id="officialWbgt" type="number" step="0.1" placeholder="Optional"></label>
-      </div>
-    </section>
+function updateFlagDisplay(flag) {
+  const b=$("flagBadge"); b.textContent=`${flag} Flag`; b.className=`flag-badge flag-${flag.toLowerCase()}`;
+}
 
-    <section class="card">
-      <h2>Calculated values</h2>
-      <div class="metrics">
-        <article><span>Natural wet bulb</span><strong id="naturalWet">--</strong><small>°F</small></article>
-        <article><span>Stull wet bulb</span><strong id="stullWet">--</strong><small>°F</small></article>
-        <article><span>Globe temperature</span><strong id="globeTemp">--</strong><small>°F</small></article>
-        <article><span>Irradiance used</span><strong id="solarUsed">--</strong><small>W/m²</small></article>
-        <article><span>Wind used</span><strong id="windUsed">--</strong><small>mph</small></article>
-        <article><span>Estimated WBGT</span><strong id="estimatedWbgt">--</strong><small>°F</small></article>
-      </div>
-    </section>
+function setMiniFlag(id, flag) {
+  const el = $(id);
+  el.textContent = flag;
+  el.className = `mini-flag flag-${flag.toLowerCase()}`;
+}
 
-    <section class="card warning-card">
-      <h2>Safety context</h2>
-      <p id="guidanceText">Enter or refresh data to calculate heat-stress context.</p>
-      <p class="fine-print">
-        Planning aid only. Official command WBGT readings, local policy, medical guidance, and calibrated instruments control operational decisions.
-      </p>
-    </section>
+function updateSiteEstimates(base) {
+  const sites = [
+    ["flightLine", "siteFlightLil", "siteFlightSimple", "siteFlightFlag"],
+    ["marathi", "siteMarathiLil", "siteMarathiSimple", "siteMarathiFlag"],
+    ["softball", "siteSoftballLil", "siteSoftballSimple", "siteSoftballFlag"],
+    ["fuelFarm", "siteFuelLil", "siteFuelSimple", "siteFuelFlag"]
+  ];
+  for (const [key, lilId, simpleId, flagId] of sites) {
+    const result = WBGT.siteEstimate(WBGT.siteProfiles[key], base);
+    $(lilId).textContent = `${result.liljegrenWbgt.toFixed(1)}°F`;
+    $(simpleId).textContent = `${result.simplifiedWbgt.toFixed(1)}°F`;
+    setMiniFlag(flagId, result.flag);
+  }
+}
 
-    <section class="card">
-      <details>
-        <summary>Method and formulas</summary>
-        <div class="details-body">
-          <p>Natural wet bulb is solved iteratively from dry bulb, dew point, and pressure using a Magnus saturation-vapor-pressure equation and a ventilated psychrometer relationship.</p>
-          <p>Outdoor direct-sun WBGT = 0.7 × natural wet bulb + 0.2 × globe temperature + 0.1 × dry bulb.</p>
-          <p>Shade/indoor WBGT = 0.7 × natural wet bulb + 0.3 × globe temperature.</p>
-          <p>Modeled globe temperature uses a simplified steady-state heat balance with solar gain, reflected solar adjustment, longwave radiation, and convective cooling. A measured globe temperature overrides the model.</p>
-        </div>
-      </details>
-    </section>
+function recalculate() {
+  try {
+    const tempF=num("tempF"), dewF=num("dewF"), pressureHpa=num("pressureHpa");
+    let rh=num("rh");
+    if(!Number.isFinite(rh)||rh<=0||rh>100){
+      rh=WBGT.relativeHumidityFromDewPoint(tempF,dewF); $("rh").value=rh.toFixed(1);
+    }
+    const exposure=$("exposure").value;
+    const solarMode=$("solarMode").value;
+    let solar=0;
+    if(exposure==="Direct sun"){
+      solar=solarMode==="Live"?num("liveSolar"):
+        solarMode==="Scenario"?WBGT.scenarios[$("skyScenario").value]:num("manualSolar");
+    }
+    const wind=$("windMode").value==="Live"?num("liveWind"):num("manualWind");
+    const albedo=WBGT.surfaces[$("surfaceType").value];
+    const psychWet=WBGT.naturalWetBulbIterative(tempF,dewF,pressureHpa);
+    const stull=WBGT.stullWetBulb(tempF,rh);
+    const simpGlobe=WBGT.modeledGlobeTemperature({tempF,solarWm2:solar,windMph:wind,albedo});
+    const measuredGlobeRaw=$("measuredGlobe").value.trim();
+    const simpGlobeUsed=measuredGlobeRaw===""?simpGlobe:Number(measuredGlobeRaw);
+    const simplifiedWbgt=WBGT.calculateWbgt({exposure,naturalWetF:psychWet,globeF:simpGlobeUsed,dryBulbF:tempF});
 
-    <section class="card">
-      <details>
-        <summary>Install on iPhone</summary>
-        <div class="details-body">
-          <ol>
-            <li>Open this site in Safari.</li>
-            <li>Tap Share.</li>
-            <li>Select “Add to Home Screen.”</li>
-            <li>Launch it from the new icon.</li>
-          </ol>
-        </div>
-      </details>
-    </section>
-  </main>
+    const lil=WBGT.liljegren({
+      tempF,rh,pressureHpa,windMph:wind,windHeightM:10,solarWm2:solar,
+      latitude:num("latitude"),longitude:num("longitude"),date:observationDate,
+      albedo,exposure
+    });
 
-  <footer>
-    <a href="privacy.html">Privacy</a>
-    <span>•</span>
-    <span>Version 1.0</span>
-  </footer>
+    const selected=$("modelChoice").value==="liljegren"?lil.wbgtF:simplifiedWbgt;
+    const officialRaw=$("officialWbgt").value.trim();
+    const controlling=officialRaw===""?selected:Number(officialRaw);
+    const flag=WBGT.flagFromWbgt(controlling);
 
-  <script src="calculations.js"></script>
-  <script src="app.js"></script>
-</body>
-</html>
+    $("naturalWet").textContent=psychWet.toFixed(1);
+    $("stullWet").textContent=stull.toFixed(1);
+    $("globeTemp").textContent=simpGlobeUsed.toFixed(1);
+    $("simplifiedWbgt").textContent=simplifiedWbgt.toFixed(1);
+    $("lilNaturalWet").textContent=lil.naturalWetF.toFixed(1);
+    $("lilGlobeTemp").textContent=lil.globeF.toFixed(1);
+    $("lilWbgt").textContent=lil.wbgtF.toFixed(1);
+    $("modelDifference").textContent=(lil.wbgtF-simplifiedWbgt).toFixed(1);
+    $("solarUsed").textContent=solar.toFixed(0);
+    $("windUsed").textContent=wind.toFixed(1);
+    $("sourceUsed").textContent=currentSourceLabel;
+    $("metarAge").textContent=currentMetarAge == null ? "--" : currentMetarAge.toFixed(0);
+    $("wbgtValue").textContent=controlling.toFixed(1);
+    $("confidenceLabel").textContent=officialRaw!==""?"Measured / official":
+      ($("modelChoice").value==="liljegren"?"Liljegren estimate":"Simplified estimate");
+    $("guidanceText").textContent=WBGT.guidance(flag);
+    updateFlagDisplay(flag);
+
+    updateSiteEstimates({
+      tempF,
+      dewF,
+      rh,
+      pressureHpa,
+      windMph: wind,
+      solarWm2: solar,
+      latitude: num("latitude"),
+      longitude: num("longitude"),
+      date: observationDate
+    });
+  } catch(err) {
+    $("weatherStatus").textContent=err.message;
+  }
+}
+
+async function fetchOpenMeteo(lat, lon, fullWeather=true) {
+  const fields = fullWeather
+    ? "temperature_2m,relative_humidity_2m,dew_point_2m,surface_pressure,shortwave_radiation,wind_speed_10m"
+    : "shortwave_radiation";
+  const params=new URLSearchParams({
+    latitude:lat,longitude:lon,current:fields,
+    temperature_unit:"fahrenheit",wind_speed_unit:"mph",timezone:"auto"
+  });
+  const r=await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+  if(!r.ok) throw new Error(`Open-Meteo request failed (${r.status}).`);
+  return r.json();
+}
+
+async function fetchLgsaMetar() {
+  const proxy = $("metarProxyUrl").value.trim();
+  if (!proxy) {
+    throw new Error("LGSA mode requires the Cloudflare Worker proxy URL. See README.");
+  }
+  const url = new URL(proxy);
+  url.searchParams.set("station", "LGSA");
+  const r = await fetch(url.toString());
+  if(!r.ok) throw new Error(`METAR proxy request failed (${r.status}).`);
+  return r.json();
+}
+
+async function fetchWeather() {
+  $("weatherStatus").textContent="Fetching current weather…";
+  const source = $("weatherSource").value;
+
+  if (source === "lgsa") {
+    const [metar, solarData] = await Promise.all([
+      fetchLgsaMetar(),
+      fetchOpenMeteo(LGSA.latitude, LGSA.longitude, false)
+    ]);
+
+    $("tempF").value = Number(metar.temperatureF).toFixed(1);
+    $("dewF").value = Number(metar.dewPointF).toFixed(1);
+    $("rh").value = WBGT.relativeHumidityFromDewPoint(
+      Number(metar.temperatureF), Number(metar.dewPointF)
+    ).toFixed(1);
+    $("pressureHpa").value = Number(metar.stationPressureHpa || metar.altimeterHpa).toFixed(1);
+    $("liveWind").value = Number(metar.windMph).toFixed(1);
+    $("liveSolar").value = Number(solarData.current.shortwave_radiation).toFixed(0);
+
+    observationDate = new Date(metar.observationTime);
+    currentMetarAge = Math.max(0, (Date.now() - observationDate.getTime()) / 60000);
+    currentSourceLabel = "LGSA METAR + modeled solar";
+    $("updatedAt").textContent = `LGSA ${metar.observationTime}`;
+    $("weatherStatus").textContent =
+      `LGSA METAR loaded. Solar radiation is modeled at the airport coordinates.`;
+  } else {
+    const lat=num("latitude"),lon=num("longitude");
+    const data=await fetchOpenMeteo(lat,lon,true);
+    const c=data.current;
+    $("tempF").value=Number(c.temperature_2m).toFixed(1);
+    $("dewF").value=Number(c.dew_point_2m).toFixed(1);
+    $("rh").value=Number(c.relative_humidity_2m).toFixed(1);
+    $("pressureHpa").value=Number(c.surface_pressure).toFixed(1);
+    $("liveSolar").value=Number(c.shortwave_radiation).toFixed(0);
+    $("liveWind").value=Number(c.wind_speed_10m).toFixed(1);
+    observationDate=new Date();
+    currentMetarAge=null;
+    currentSourceLabel="Open-Meteo at selected coordinates";
+    $("updatedAt").textContent=`Updated ${c.time}`;
+    $("weatherStatus").textContent="Local model weather loaded.";
+  }
+  recalculate();
+}
+
+function useCurrentLocation(){
+  if(!navigator.geolocation){$("weatherStatus").textContent="Geolocation is not supported.";return;}
+  $("weatherStatus").textContent="Requesting location…";
+  navigator.geolocation.getCurrentPosition(
+    p=>{
+      $("latitude").value=p.coords.latitude.toFixed(6);
+      $("longitude").value=p.coords.longitude.toFixed(6);
+      if ($("weatherSource").value === "local") {
+        fetchWeather().catch(e=>$("weatherStatus").textContent=e.message);
+      } else {
+        $("weatherStatus").textContent =
+          "Location updated for solar geometry; LGSA remains the meteorological station.";
+        recalculate();
+      }
+    },
+    e=>$("weatherStatus").textContent=`Location unavailable: ${e.message}`,
+    {enableHighAccuracy:true,timeout:12000,maximumAge:300000}
+  );
+}
+
+function wireEvents(){
+  document.querySelectorAll("input, select").forEach(el=>{
+    el.addEventListener("input",recalculate);el.addEventListener("change",recalculate);
+  });
+  $("weatherSource").addEventListener("change", () => {
+    const airport = $("weatherSource").value === "lgsa";
+    $("weatherStatus").textContent = airport
+      ? "Airport mode selected. Refresh to load LGSA METAR."
+      : "Local GPS/model mode selected. Refresh to load local weather.";
+  });
+  $("useLocationBtn").addEventListener("click",useCurrentLocation);
+  $("refreshBtn").addEventListener("click",()=>fetchWeather().catch(e=>$("weatherStatus").textContent=e.message));
+  $("manualModeBtn").addEventListener("click",()=>{
+    $("solarMode").value="Manual";$("windMode").value="Manual";
+    observationDate=new Date();currentSourceLabel="Manual inputs";currentMetarAge=null;
+    $("weatherStatus").textContent="Manual mode selected.";recalculate();
+  });
+  window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredPrompt=e;$("installBtn").classList.remove("hidden");});
+  $("installBtn").addEventListener("click",async()=>{if(!deferredPrompt)return;deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;$("installBtn").classList.add("hidden");});
+}
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("service-worker.js"));
+populateLookups();wireEvents();recalculate();

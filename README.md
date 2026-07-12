@@ -1,39 +1,76 @@
-# WBGT Planner PWA
+export default {
+  async fetch(request) {
+    const requestUrl = new URL(request.url);
+    const station = (requestUrl.searchParams.get("station") || "LGSA").toUpperCase();
 
-A free, mobile-first Progressive Web App for estimating natural wet-bulb temperature, globe temperature, WBGT, and Navy-style heat flags.
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+      "Cache-Control": "public, max-age=60"
+    };
 
-## Deploy free with GitHub Pages
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
+    }
 
-1. Create a free GitHub account.
-2. Create a new **public** repository named `souda-wbgt`.
-3. Upload every file and folder from this ZIP into the repository root.
-4. Open **Settings → Pages**.
-5. Under **Build and deployment**, choose **Deploy from a branch**.
-6. Select the `main` branch and `/ (root)`, then save.
-7. GitHub will publish the site at:
-   `https://YOUR-USERNAME.github.io/souda-wbgt/`
+    if (!/^[A-Z0-9]{4}$/.test(station)) {
+      return Response.json({ error: "Invalid ICAO station." }, { status: 400, headers: corsHeaders });
+    }
 
-## Install on iPhone
+    const awcUrl =
+      `https://aviationweather.gov/api/data/metar?ids=${station}&format=json&hours=2`;
 
-1. Open the published site in Safari.
-2. Tap Share.
-3. Tap **Add to Home Screen**.
-4. Launch it from the icon.
+    const response = await fetch(awcUrl, {
+      headers: {
+        "User-Agent": "Personal-WBGT-Planner/1.0",
+        "Accept": "application/json"
+      }
+    });
 
-## Notes
+    if (!response.ok) {
+      return Response.json(
+        { error: `Aviation Weather API returned ${response.status}` },
+        { status: 502, headers: corsHeaders }
+      );
+    }
 
-- Live weather comes from Open-Meteo using latitude and longitude.
-- The app works offline for manual/scenario calculations after it has been opened once.
-- Live weather requires an internet connection.
-- The globe-temperature model is a planning estimate, not a replacement for a calibrated WBGT instrument.
-- Official/local safety guidance controls operational decisions.
+    const rows = await response.json();
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return Response.json(
+        { error: `No recent METAR available for ${station}` },
+        { status: 404, headers: corsHeaders }
+      );
+    }
 
-## Files
+    const m = rows[0];
 
-- `index.html` — app interface
-- `styles.css` — responsive design
-- `calculations.js` — wet-bulb, globe, and WBGT math
-- `app.js` — GPS, API calls, UI behavior
-- `manifest.json` — installable-app configuration
-- `service-worker.js` — offline caching
-- `privacy.html` — privacy notice
+    // AWC JSON generally supplies temp/dewp in °C, wind in knots,
+    // and altim in hPa. The fallbacks make the proxy tolerant of field changes.
+    const tempC = Number(m.temp);
+    const dewC = Number(m.dewp);
+    const windKt = Number(m.wspd || 0);
+    const altimeterRaw = Number(m.altim);
+    const altimeterHpa = altimeterRaw < 100
+      ? altimeterRaw * 33.8638867
+      : altimeterRaw;
+
+    const output = {
+      station,
+      observationTime:
+        m.reportTime || m.obsTime || m.receiptTime || new Date().toISOString(),
+      temperatureC: tempC,
+      temperatureF: tempC * 9 / 5 + 32,
+      dewPointC: dewC,
+      dewPointF: dewC * 9 / 5 + 32,
+      windKnots: windKt,
+      windMph: windKt * 1.15077945,
+      windDirectionDeg: m.wdir,
+      altimeterHpa,
+      rawMetar: m.rawOb || m.raw_text || null,
+      source: "NOAA/NWS Aviation Weather Center METAR API"
+    };
+
+    return Response.json(output, { headers: corsHeaders });
+  }
+};

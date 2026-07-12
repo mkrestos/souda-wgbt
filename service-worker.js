@@ -1,38 +1,20 @@
-
-const CACHE_NAME = "wbgt-planner-v1";
-const ASSETS = [
-  "./",
-  "./index.html",
-  "./styles.css",
-  "./app.js",
-  "./calculations.js",
-  "./manifest.json",
-  "./privacy.html",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png"
-];
-
-self.addEventListener("install", event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)));
-  self.skipWaiting();
-});
-
-self.addEventListener("activate", event => {
-  event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
-  );
-  self.clients.claim();
-});
-
-self.addEventListener("fetch", event => {
-  if (event.request.method !== "GET") return;
-  event.respondWith(
-    fetch(event.request)
-      .then(response => {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy));
-        return response;
-      })
-      .catch(() => caches.match(event.request))
-  );
-});
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+  <title>Privacy — WBGT Planner</title>
+</head>
+<body>
+  <main>
+    <section class="card">
+      <h1>Privacy</h1>
+      <p>This app does not create user accounts and does not intentionally store personal information on a server.</p>
+      <p>If you choose “Use my location,” your browser provides latitude and longitude to the app. Those coordinates are sent to Open-Meteo solely to retrieve weather data.</p>
+      <p>Calculation inputs remain in your browser session unless your browser or device stores form state automatically.</p>
+      <p><a href="index.html">Return to calculator</a></p>
+    </section>
+  </main>
+</body>
+</html>

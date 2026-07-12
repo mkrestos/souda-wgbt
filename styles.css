@@ -1,116 +1,85 @@
+# WBGT Planner PWA
 
-:root {
-  --bg: #edf3f6;
-  --card: #ffffff;
-  --ink: #10232f;
-  --muted: #5d7180;
-  --brand: #0b3a53;
-  --accent: #2f7da2;
-  --line: #d8e2e8;
-  --shadow: 0 10px 28px rgba(11,58,83,.09);
-}
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: var(--bg);
-  color: var(--ink);
-}
-.app-header {
-  padding: calc(18px + env(safe-area-inset-top)) 18px 18px;
-  background: linear-gradient(135deg, #0b3a53, #145f82);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-h1, h2, p { margin-top: 0; }
-h1 { margin-bottom: 0; font-size: 1.85rem; }
-h2 { font-size: 1.12rem; margin-bottom: 14px; }
-.eyebrow { margin-bottom: 2px; opacity: .75; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; }
-main { padding: 16px; max-width: 760px; margin: 0 auto; }
-.card, .hero-card {
-  background: var(--card);
-  border-radius: 18px;
-  padding: 18px;
-  margin-bottom: 14px;
-  box-shadow: var(--shadow);
-}
-.hero-card {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  color: white;
-  background: linear-gradient(135deg, #183f53, #286c8d);
-}
-.label { color: rgba(255,255,255,.75); margin-bottom: 4px; }
-.hero-value { font-size: 3.6rem; font-weight: 800; line-height: 1; }
-.hero-value .unit { font-size: 1.2rem; margin-left: 4px; font-weight: 600; }
-.hero-meta { text-align: right; color: rgba(255,255,255,.8); font-size: .82rem; }
-.flag-badge {
-  display: inline-block;
-  margin-top: 12px;
-  padding: 7px 12px;
-  border-radius: 999px;
-  font-weight: 800;
-  background: rgba(255,255,255,.2);
-}
-.flag-white { background:#fff; color:#111; }
-.flag-green { background:#2f9e44; color:white; }
-.flag-yellow { background:#ffd43b; color:#513c00; }
-.flag-red { background:#e03131; color:white; }
-.flag-black { background:#000; color:white; }
-.neutral { background: rgba(255,255,255,.18); color:white; }
-.section-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-.grid { display:grid; gap:12px; }
-.grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-label { display:flex; flex-direction:column; gap:6px; font-size:.82rem; color:var(--muted); font-weight:600; }
-input, select, button {
-  font: inherit;
-  border-radius: 12px;
-}
-input, select {
-  width:100%;
-  border:1px solid var(--line);
-  padding:12px;
-  background:white;
-  color:var(--ink);
-}
-button {
-  border:0;
-  padding:11px 14px;
-  font-weight:700;
-}
-.primary { background:var(--accent); color:white; }
-.secondary { background:#dbeaf1; color:var(--brand); }
-.ghost { background:transparent; border:1px solid var(--line); color:var(--brand); }
-.button-row { display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
-.status { margin:12px 0 0; font-size:.82rem; color:var(--muted); }
-.metrics { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; }
-.metrics article {
-  border:1px solid var(--line);
-  border-radius:14px;
-  padding:13px;
-  background:#f9fbfc;
-}
-.metrics span { display:block; font-size:.75rem; color:var(--muted); margin-bottom:6px; }
-.metrics strong { font-size:1.55rem; }
-.metrics small { margin-left:4px; color:var(--muted); }
-.warning-card { border-left:5px solid #f08c00; }
-.fine-print { color:var(--muted); font-size:.78rem; line-height:1.45; }
-summary { cursor:pointer; font-weight:800; }
-.details-body { margin-top:12px; color:var(--muted); line-height:1.55; }
-footer {
-  padding: 8px 16px calc(22px + env(safe-area-inset-bottom));
-  text-align:center;
-  color:var(--muted);
-  font-size:.8rem;
-}
-footer a { color:var(--brand); }
-.hidden { display:none; }
+A free, mobile-first Progressive Web App that compares two weather-derived WBGT models: the Liljegren/OSHA heat-and-mass-transfer model and a simplified psychrometric/globe heat-balance model.
 
-@media (max-width: 620px) {
-  .grid.two { grid-template-columns:1fr; }
-  .hero-card { align-items:flex-start; }
-  .hero-value { font-size:3rem; }
-}
+## Deploy free with GitHub Pages
+
+1. Create a free GitHub account.
+2. Create a new **public** repository named `souda-wbgt`.
+3. Upload every file and folder from this ZIP into the repository root.
+4. Open **Settings → Pages**.
+5. Under **Build and deployment**, choose **Deploy from a branch**.
+6. Select the `main` branch and `/ (root)`, then save.
+7. GitHub will publish the site at:
+   `https://YOUR-USERNAME.github.io/souda-wbgt/`
+
+## Install on iPhone
+
+1. Open the published site in Safari.
+2. Tap Share.
+3. Tap **Add to Home Screen**.
+4. Launch it from the icon.
+
+## Notes
+
+- Live weather comes from Open-Meteo using latitude and longitude.
+- The app works offline for manual/scenario calculations after it has been opened once.
+- Live weather requires an internet connection.
+- The globe-temperature model is a planning estimate, not a replacement for a calibrated WBGT instrument.
+- Official/local safety guidance controls operational decisions.
+
+## Files
+
+- `index.html` — app interface
+- `styles.css` — responsive design
+- `calculations.js` — wet-bulb, globe, and WBGT math
+- `app.js` — GPS, API calls, UI behavior
+- `manifest.json` — installable-app configuration
+- `service-worker.js` — offline caching
+- `privacy.html` — privacy notice
+
+
+## Model labels
+
+- **Liljegren / OSHA** — ports the Argonne heat-and-mass-transfer approach used by OSHA's Outdoor WBGT Calculator. It estimates radiative natural wet-bulb temperature and globe temperature using solar position, radiation, humidity, pressure, and wind.
+- **Simplified heat balance** — the original app model. It combines a psychrometric wet bulb with a simplified globe energy balance.
+- The app displays both values and their difference. The selected model drives the large dashboard result unless an official/measured WBGT is entered.
+
+## Argonne acknowledgment and license note
+
+This product includes software produced by UChicago Argonne, LLC under Contract No. DE-AC02-06CH11357 with the Department of Energy.
+
+The JavaScript implementation is a modified port for this PWA. The original Argonne source and its license/disclaimer should be retained with redistributed versions.
+
+
+## Chania Airport METAR mode
+
+The app now supports a hybrid **LGSA METAR** source:
+
+- Measured temperature, dew point, wind, and altimeter pressure come from the
+  NOAA/NWS Aviation Weather Center's worldwide METAR feed for Chania Airport.
+- Solar irradiance still comes from Open-Meteo at the airport coordinates,
+  because METAR observations do not include solar radiation.
+- The Aviation Weather API blocks direct browser CORS access, so deploy the
+  included free Cloudflare Worker in `cloudflare-worker/` and paste its URL into
+  the app.
+
+This mode represents conditions at the airport observation site, not necessarily
+Chorafakia, Stavros Beach, or a specific concrete apron.
+
+
+## Souda Bay site profiles
+
+The site comparison uses the same LGSA atmospheric baseline and recalculates both
+models after applying provisional site modifiers:
+
+| Site | Wind multiplier | Albedo | Effective radiant multiplier |
+|---|---:|---:|---:|
+| Flight Line | 1.00 | 0.30 | 1.00 |
+| Marathi Pier | 1.15 | 0.25 | 0.95 |
+| Synthetic Softball Field | 1.00 | 0.12 | 1.12 |
+| Fuel Farm | 0.80 | 0.22 | 1.05 |
+
+These are planning assumptions, not measured calibration factors. Flight Line and
+Synthetic Softball Field intentionally use the same wind exposure; their modeled
+difference comes from concrete versus synthetic-turf surface behavior.

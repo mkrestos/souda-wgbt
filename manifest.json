@@ -1,21 +1,325 @@
-{
-  "name": "WBGT Planner",
-  "short_name": "WBGT",
-  "description": "Mobile heat-stress and WBGT planning calculator.",
-  "start_url": "./",
-  "display": "standalone",
-  "background_color": "#edf3f6",
-  "theme_color": "#0b3a53",
-  "icons": [
-    {
-      "src": "icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
+/*
+  WBGT Planner calculation engine.
+
+  Liljegren implementation is a JavaScript port based on:
+  James C. Liljegren et al., "Modeling the Wet Bulb Globe Temperature Using
+  Standard Meteorological Measurements," JOEH 5:10, 645-655 (2008).
+
+  Required acknowledgment from the original Argonne license:
+  "This product includes software produced by UChicago Argonne, LLC under
+  Contract No. DE-AC02-06CH11357 with the Department of Energy."
+
+  Modifications: JavaScript port, modern Date-based solar position interface,
+  dual-model comparison, and mobile-web integration.
+*/
+const WBGT = (() => {
+  const scenarios = {
+    "Night / no sun": 0, "Deep shade": 50, "Heavy overcast": 125,
+    "Overcast": 250, "Broken clouds": 500, "Hazy / filtered sun": 650,
+    "Mostly sunny": 800, "Clear strong sun": 950, "Extreme clear midday": 1050
+  };
+  const surfaces = {
+    "Dark asphalt": 0.10, "Weathered concrete apron": 0.25,
+    "Light concrete / pale pavement": 0.35, "Dry grass / soil": 0.20,
+    "Green grass": 0.23, "White roof / very bright surface": 0.60
+  };
+  const fToC = f => (f - 32) * 5 / 9;
+  const cToF = c => c * 9 / 5 + 32;
+  const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
+
+  function saturationVaporPressure(tempC) {
+    return 6.112 * Math.exp((17.62 * tempC) / (243.12 + tempC));
+  }
+  function relativeHumidityFromDewPoint(tempF, dewF) {
+    const t = fToC(tempF), td = fToC(dewF);
+    return 100 * saturationVaporPressure(td) / saturationVaporPressure(t);
+  }
+  function naturalWetBulbIterative(tempF, dewF, pressureHpa) {
+    const t = fToC(tempF), td = fToC(dewF);
+    if (td > t) throw new Error("Dew point cannot exceed air temperature.");
+    const e = saturationVaporPressure(td);
+    let lower = td, upper = t;
+    for (let i = 0; i < 50; i++) {
+      const tw = (lower + upper) / 2;
+      const a = 0.00066 * (1 + 0.00115 * tw);
+      const calcE = saturationVaporPressure(tw) - a * pressureHpa * (t - tw);
+      if (calcE > e) upper = tw; else lower = tw;
     }
-  ]
-}
+    return cToF((lower + upper) / 2);
+  }
+  function stullWetBulb(tempF, rh) {
+    const t = fToC(tempF);
+    return cToF(
+      t * Math.atan(0.151977 * Math.sqrt(rh + 8.313659)) +
+      Math.atan(t + rh) - Math.atan(rh - 1.676331) +
+      0.00391838 * Math.pow(rh, 1.5) * Math.atan(0.023101 * rh) - 4.686035
+    );
+  }
+
+  // Original simplified model retained for comparison.
+  function modeledGlobeTemperature({ tempF, solarWm2, windMph, albedo }) {
+    const taC = fToC(tempF), taK = taC + 273.15;
+    const diameter = 0.15, absorptivity = 0.95, emissivity = 0.95;
+    const sigma = 5.670374419e-8;
+    const windMs = Math.max(windMph * 0.44704, 0.1);
+    const absorbedSolar = absorptivity * solarWm2 * (1 + 0.5 * albedo) / 4;
+    const forcedH = 6.3 * Math.pow(windMs, 0.6) / Math.pow(diameter, 0.4);
+    let lower = taC, upper = taC + 80;
+    for (let i = 0; i < 50; i++) {
+      const tgC = (lower + upper) / 2;
+      const h = Math.max(forcedH, 1.4 * Math.pow(Math.max(Math.abs(tgC-taC), 0.0001), 0.25));
+      const losses = emissivity * sigma *
+        (Math.pow(tgC+273.15,4)-Math.pow(taK,4)) + h*(tgC-taC);
+      if (absorbedSolar-losses > 0) lower=tgC; else upper=tgC;
+    }
+    return cToF((lower+upper)/2);
+  }
+
+  // ---- Liljegren / Argonne model constants and properties ----
+  const L = {
+    PI: Math.PI, DEG_RAD: Math.PI/180, SOLAR_CONST: 1367,
+    STEFANB: 5.6696e-8, Cp: 1003.5, M_AIR: 28.97, M_H2O: 18.015,
+    R_GAS: 8314.34, EMIS_WICK: 0.95, ALB_WICK: 0.4,
+    D_WICK: 0.007, L_WICK: 0.0254, EMIS_GLOBE: 0.95,
+    ALB_GLOBE: 0.05, D_GLOBE: 0.0508, EMIS_SFC: 0.999,
+    ALB_SFC: 0.45, MIN_SPEED: 0.13, CZA_MIN: 0.00873,
+    NORMSOLAR_MAX: 0.85, CONVERGENCE: 0.02, MAX_ITER: 500
+  };
+  L.R_AIR = L.R_GAS/L.M_AIR;
+  L.RATIO = L.Cp*L.M_AIR/L.M_H2O;
+  L.Pr = L.Cp/(L.Cp+1.25*L.R_AIR);
+
+  function esatK(tk) {
+    const y=(tk-273.15)/(tk-32.18);
+    return 1.004*6.1121*Math.exp(17.502*y);
+  }
+  function dewPointK(e) {
+    const z=Math.log(e/(6.1121*1.004));
+    return 273.15+240.97*z/(17.502-z);
+  }
+  function viscosity(tk) {
+    const sigma=3.617, epsK=97.0;
+    const tr=tk/epsK;
+    const omega=(tr-2.9)/0.4*(-0.034)+1.048;
+    return 2.6693e-6*Math.sqrt(L.M_AIR*tk)/(sigma*sigma*omega);
+  }
+  function thermalCond(tk) { return (L.Cp+1.25*L.R_AIR)*viscosity(tk); }
+  function diffusivity(tk,pair) {
+    const pca=36.4,pch=218,tca=132,tch=647.3,a=3.640e-4,b=2.334;
+    return a*Math.pow(tk/Math.sqrt(tca*tch),b)*
+      Math.pow(pca*pch,1/3)*Math.pow(tca*tch,5/12)*
+      Math.sqrt(1/L.M_AIR+1/L.M_H2O)/(pair/1013.25)*1e-4;
+  }
+  function evap(tk) { return (313.15-tk)/30*(-71100)+2.4073e6; }
+  function emisAtm(tk,rh) { return 0.575*Math.pow(rh*esatK(tk),0.143); }
+  function hCylinder(diameter,length,tk,pair,speed) {
+    const density=pair*100/(L.R_AIR*tk);
+    const re=Math.max(speed,L.MIN_SPEED)*density*diameter/viscosity(tk);
+    const nu=0.281*Math.pow(re,0.6)*Math.pow(L.Pr,0.44);
+    return nu*thermalCond(tk)/diameter;
+  }
+  function hSphere(diameter,tk,pair,speed) {
+    const density=pair*100/(L.R_AIR*tk);
+    const re=Math.max(speed,L.MIN_SPEED)*density*diameter/viscosity(tk);
+    const nu=2+0.6*Math.sqrt(re)*Math.pow(L.Pr,0.3333);
+    return nu*thermalCond(tk)/diameter;
+  }
+
+  function solarParameters(date,lat,lon,solarInput) {
+    // Low-precision solar position equivalent to the original Almanac method.
+    const utc = new Date(date);
+    const year=utc.getUTCFullYear();
+    const start=Date.UTC(year,0,0);
+    const doy=(Date.UTC(year,utc.getUTCMonth(),utc.getUTCDate())-start)/86400000;
+    const hour=utc.getUTCHours()+utc.getUTCMinutes()/60+utc.getUTCSeconds()/3600;
+    const daysJ2000 = (Date.UTC(year,0,1)-Date.UTC(2000,0,1))/86400000 + (doy-1) + hour/24 - 0.5;
+    const meanAn=(357.528+0.9856003*daysJ2000)*L.DEG_RAD;
+    const meanLong=(280.460+0.9856474*daysJ2000)*L.DEG_RAD;
+    const obl=(23.439-4e-7*daysJ2000)*L.DEG_RAD;
+    const ecl=((1.915*Math.sin(meanAn))+(0.020*Math.sin(2*meanAn)))*L.DEG_RAD+meanLong;
+    const distance=1.00014-0.01671*Math.cos(meanAn)-0.00014*Math.cos(2*meanAn);
+    const dec=Math.asin(Math.sin(obl)*Math.sin(ecl));
+    const eqTimeMin = 4*(280.460+0.9856474*daysJ2000 -
+      (Math.atan2(Math.cos(obl)*Math.sin(ecl),Math.cos(ecl))/L.DEG_RAD));
+    const trueSolarMin=(hour*60+eqTimeMin+4*lon)%1440;
+    let ha=trueSolarMin/4-180;
+    if (ha < -180) ha += 360;
+    const latR=lat*L.DEG_RAD, haR=ha*L.DEG_RAD;
+    const cza=clamp(Math.sin(latR)*Math.sin(dec)+Math.cos(latR)*Math.cos(dec)*Math.cos(haR),-1,1);
+    let solar=Math.max(0,solarInput);
+    let fdir=0;
+    let toa=L.SOLAR_CONST*Math.max(0,cza)/(distance*distance);
+    if(cza<L.CZA_MIN) toa=0;
+    if(toa>0){
+      const norm=Math.min(solar/toa,L.NORMSOLAR_MAX);
+      solar=norm*toa;
+      if(norm>0) fdir=clamp(Math.exp(3-1.34*norm-1.65/norm),0,0.9);
+    }
+    return {cza, fdir, solar};
+  }
+
+  function stabilityClass(daytime,speed,solar,dT=-1) {
+    const table=[[1,1,2,4,0,5,6,0],[1,2,3,4,0,5,6,0],[2,2,3,4,0,4,4,0],
+      [3,3,4,4,0,0,0,0],[3,4,4,4,0,0,0,0],[0,0,0,0,0,0,0,0]];
+    let i,j;
+    if(daytime){
+      j=solar>=925?0:solar>=675?1:solar>=175?2:3;
+      i=speed>=6?4:speed>=5?3:speed>=3?2:speed>=2?1:0;
+    } else {
+      j=dT>=0?6:5;
+      i=speed>=2.5?2:speed>=2?1:0;
+    }
+    return table[i][j] || 4;
+  }
+  function windAt2m(speed,zspeed,stability,urban=false){
+    const ue=[.15,.15,.20,.25,.30,.30], re=[.07,.07,.10,.15,.35,.55];
+    return Math.max(speed*Math.pow(2/zspeed,(urban?ue:re)[stability-1]),L.MIN_SPEED);
+  }
+
+  function lilTwb(tairK,rh,pair,speed,solar,fdir,cza,rad=true,albedo=L.ALB_SFC){
+    const sza=Math.acos(clamp(cza,-1,1)), tsfc=tairK;
+    const eair=rh*esatK(tairK);
+    let prev=dewPointK(eair), next=prev;
+    for(let i=0;i<L.MAX_ITER;i++){
+      const tref=.5*(prev+tairK);
+      const h=hCylinder(L.D_WICK,L.L_WICK,tref,pair,speed);
+      const fatm=L.STEFANB*L.EMIS_WICK*
+        (.5*(emisAtm(tairK,rh)*Math.pow(tairK,4)+L.EMIS_SFC*Math.pow(tsfc,4))-Math.pow(prev,4))+
+        (1-L.ALB_WICK)*solar*((1-fdir)*(1+.25*L.D_WICK/L.L_WICK)+
+        fdir*((Math.tan(sza)/L.PI)+.25*L.D_WICK/L.L_WICK)+albedo);
+      const ewick=esatK(prev);
+      const density=pair*100/(L.R_AIR*tref);
+      const sc=viscosity(tref)/(density*diffusivity(tref,pair));
+      next=tairK-evap(tref)/L.RATIO*(ewick-eair)/(pair-ewick)*Math.pow(L.Pr/sc,.56)+(rad?fatm/h:0);
+      if(Math.abs(next-prev)<L.CONVERGENCE) return next-273.15;
+      prev=.9*prev+.1*next;
+    }
+    throw new Error("Liljegren wet-bulb model did not converge.");
+  }
+
+  function lilGlobe(tairK,rh,pair,speed,solar,fdir,cza,albedo=L.ALB_SFC){
+    const tsfc=tairK;
+    let prev=tairK,next=prev;
+    for(let i=0;i<L.MAX_ITER;i++){
+      const tref=.5*(prev+tairK);
+      const h=hSphere(L.D_GLOBE,tref,pair,speed);
+      const safeCza=Math.max(cza,L.CZA_MIN);
+      const inside=.5*(emisAtm(tairK,rh)*Math.pow(tairK,4)+L.EMIS_SFC*Math.pow(tsfc,4))
+        -h/(L.STEFANB*L.EMIS_GLOBE)*(prev-tairK)
+        +solar/(2*L.STEFANB*L.EMIS_GLOBE)*(1-L.ALB_GLOBE)*
+        (fdir*(1/(2*safeCza)-1)+1+albedo);
+      next=Math.pow(Math.max(inside,1),.25);
+      if(Math.abs(next-prev)<L.CONVERGENCE) return next-273.15;
+      prev=.9*prev+.1*next;
+    }
+    throw new Error("Liljegren globe model did not converge.");
+  }
+
+  function liljegren({tempF,rh,pressureHpa,windMph,windHeightM=10,solarWm2,
+    latitude,longitude,date=new Date(),albedo=0.25,exposure="Direct sun"}) {
+    const tairC=fToC(tempF), tairK=tairC+273.15;
+    let windMs=Math.max(windMph*0.44704,L.MIN_SPEED);
+    const sp=solarParameters(date,latitude,longitude,exposure==="Direct sun"?solarWm2:0);
+    if(windHeightM!==2){
+      const stab=stabilityClass(sp.cza>0,windMs,sp.solar,-1);
+      windMs=windAt2m(windMs,windHeightM,stab,false);
+    }
+    const rhFrac=clamp(rh/100,.01,1);
+    const tnwbC=lilTwb(tairK,rhFrac,pressureHpa,windMs,sp.solar,sp.fdir,sp.cza,true,albedo);
+    const tgC=lilGlobe(tairK,rhFrac,pressureHpa,windMs,sp.solar,sp.fdir,sp.cza,albedo);
+    const wbgtC=exposure==="Direct sun" ? .7*tnwbC+.2*tgC+.1*tairC : .7*tnwbC+.3*tgC;
+    return {naturalWetF:cToF(tnwbC), globeF:cToF(tgC), wbgtF:cToF(wbgtC),
+      wind2mMph:windMs/0.44704, solarAdjusted:sp.solar, directFraction:sp.fdir, cza:sp.cza};
+  }
+
+  function calculateWbgt({exposure,naturalWetF,globeF,dryBulbF}) {
+    return exposure==="Direct sun"
+      ?.7*naturalWetF+.2*globeF+.1*dryBulbF
+      :.7*naturalWetF+.3*globeF;
+  }
+  function flagFromWbgt(x){return x<80?"White":x<85?"Green":x<88?"Yellow":x<90?"Red":"Black";}
+  function guidance(flag){
+    return {
+      White:"Below Navy flag thresholds, but very intense exertion can still cause heat illness.",
+      Green:"Use discretion for heavy exercise, especially for unacclimatized personnel.",
+      Yellow:"Curtail strenuous exercise for unacclimatized personnel.",
+      Red:"Curtail strenuous exercise for personnel not sufficiently acclimatized to hot-weather training.",
+      Black:"Suspend physical training and strenuous exercise; follow local command policy and medical guidance."
+    }[flag];
+  }
+  const siteProfiles = {
+    flightLine: {
+      name: "Flight Line",
+      windMultiplier: 1.00,
+      albedo: 0.30,
+      radiantMultiplier: 1.00,
+      exposure: "Direct sun",
+      description: "Large open concrete apron"
+    },
+    marathi: {
+      name: "Marathi Pier",
+      windMultiplier: 1.15,
+      albedo: 0.25,
+      radiantMultiplier: 0.95,
+      exposure: "Direct sun",
+      description: "Marine wind over concrete and water"
+    },
+    softball: {
+      name: "Synthetic Softball Field",
+      windMultiplier: 1.00,
+      albedo: 0.12,
+      radiantMultiplier: 1.12,
+      exposure: "Direct sun",
+      description: "Open synthetic turf with strong longwave heating"
+    },
+    fuelFarm: {
+      name: "Fuel Farm",
+      windMultiplier: 0.80,
+      albedo: 0.22,
+      radiantMultiplier: 1.05,
+      exposure: "Direct sun",
+      description: "Reduced wind with tanks and hardstand"
+    }
+  };
+
+  function siteEstimate(profile, base) {
+    const windMph = Math.max(base.windMph * profile.windMultiplier, 0.1);
+    const solarWm2 = Math.max(base.solarWm2 * profile.radiantMultiplier, 0);
+    const psychWet = naturalWetBulbIterative(base.tempF, base.dewF, base.pressureHpa);
+    const simpGlobe = modeledGlobeTemperature({
+      tempF: base.tempF,
+      solarWm2,
+      windMph,
+      albedo: profile.albedo
+    });
+    const simplifiedWbgt = calculateWbgt({
+      exposure: profile.exposure,
+      naturalWetF: psychWet,
+      globeF: simpGlobe,
+      dryBulbF: base.tempF
+    });
+    const lil = liljegren({
+      tempF: base.tempF,
+      rh: base.rh,
+      pressureHpa: base.pressureHpa,
+      windMph,
+      windHeightM: 10,
+      solarWm2,
+      latitude: base.latitude,
+      longitude: base.longitude,
+      date: base.date,
+      albedo: profile.albedo,
+      exposure: profile.exposure
+    });
+    return {
+      liljegrenWbgt: lil.wbgtF,
+      simplifiedWbgt,
+      flag: flagFromWbgt(lil.wbgtF),
+      windMph,
+      solarWm2
+    };
+  }
+
+  return {scenarios,surfaces,siteProfiles,siteEstimate,relativeHumidityFromDewPoint,naturalWetBulbIterative,
+    stullWetBulb,modeledGlobeTemperature,liljegren,calculateWbgt,flagFromWbgt,guidance};
+})();

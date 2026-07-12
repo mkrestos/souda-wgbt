@@ -1,0 +1,26 @@
+# Free Cloudflare Worker for LGSA METAR
+
+The NOAA Aviation Weather Center API does not permit browser CORS requests.
+This Worker securely relays only the latest METAR and adds the browser header.
+
+## Deploy
+
+1. Create a free Cloudflare account.
+2. Open **Workers & Pages**.
+3. Select **Create → Worker**.
+4. Replace the sample code with `worker.js`.
+5. Deploy.
+6. Copy the resulting URL, such as:
+   `https://lgsa-metar.YOUR-NAME.workers.dev`
+7. Paste that URL into the app's **Airport METAR proxy URL** field.
+8. Select **Chania Airport METAR (LGSA hybrid)** and tap **Refresh weather**.
+
+The free Workers tier is more than sufficient for personal use.
+
+## Data behavior
+
+- Temperature: measured LGSA METAR
+- Dew point: measured LGSA METAR
+- Wind: measured LGSA METAR, converted from knots to mph
+- Pressure: LGSA altimeter setting from METAR
+- Solar radiation: Open-Meteo at LGSA coordinates, because METAR has no irradiance sensor
